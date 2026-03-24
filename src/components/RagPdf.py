@@ -1,0 +1,74 @@
+import json
+import faiss
+import numpy as np
+from sentence_transformers import SentenceTransformer
+from google import genai
+
+from src.entity.config import RagConfig
+from src.entity.artifacts import ProcessingArtifact
+
+class RagPipeline():
+    def __init__(self, processing_artifact: ProcessingArtifact, config: RagConfig):
+        self.config = config
+        self.processing_artifact = processing_artifact
+        self.model = SentenceTransformer(config.embedding_model_name)
+        self.index = faiss.read_index(processing_artifact.faiss_file_path)
+        self.client = genai.Client(api_key=config.gemini_api_key)
+        with open(processing_artifact.metadata_file_path,"r",encoding="utf-8") as f:
+            self.metadata = json.load(f)
+
+    ## REtrieve the closest vectors
+    def _search(self,query:str, k:int=5):
+        query_embedding = self.model.encode([query],normalize_embeddings=True)
+        query_embedding = np.array(query_embedding).astype('float32')
+
+        distances, indices = self.index.search(query_embedding,k)
+
+        results = []
+
+        for i in indices[0]:
+            results.append(self.metadata[i])
+
+        return results
+    
+    ## Getting context for citation
+    def _build_context(self,chunks):
+        context = ""
+        for i, chunk in enumerate(chunks):
+            context += f"[Source {i+1} | Page {chunk['page']}]\n"
+            context += chunk["text"] + "\n\n"
+
+        return context
+    
+    def answer_query(self,query):
+        chunks = self._search(query)
+
+        context = self._build_context(chunks)
+
+        prompt = f"""
+    You are a financial document assistant.
+
+    Answer the question ONLY using the provided context.
+    Do NOT use outside knowledge.
+
+    Always include page references like (Page X).
+
+    If the answer is not found, say: "Not found in document."
+
+    Context:
+    {context}
+
+    Question:
+    {query}
+
+    Answer:
+    """
+    
+        response = self.client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=prompt
+        )
+
+        return response.text
+
+    

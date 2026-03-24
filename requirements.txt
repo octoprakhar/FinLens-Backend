@@ -1,0 +1,8 @@
+numpy<2
+pymupdf
+sentence-transformers
+faiss-cpu
+google-genai
+docling
+fastapi
+uvicorn[standard]
