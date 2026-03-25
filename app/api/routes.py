@@ -1,4 +1,4 @@
-from fastapi import APIRouter, UploadFile, File
+from fastapi import APIRouter, UploadFile, File, BackgroundTasks
 import uuid
 import os
 import shutil
@@ -11,9 +11,13 @@ from src.components.RagPdf import RagPipeline
 
 from app.schemas.response import UploadPdfResponse, QueryResponse
 from app.schemas.request import QueryRequest
+from app.services.upload_service import run_pipeline
+from app.services.status_service import set_status, get_status
+from app.services.rag_service import retrieve_pipeline,ask_pipeline
+from app.services.cache_service import clear_cache_by_file
+
 
 router = APIRouter()
-CACHE = {}
 
 @router.get("/health")
 def health():
@@ -22,7 +26,7 @@ def health():
 
 
 @router.post("/upload")
-def upload_pdf(file: UploadFile = File(...)):
+def upload_pdf(file: UploadFile = File(...), bg: BackgroundTasks = None):
 
     try:
         # Create file id
@@ -40,73 +44,45 @@ def upload_pdf(file: UploadFile = File(...)):
         os.makedirs(vector_dir,exist_ok=True)
 
         ## Save file
-        file_path = os.path.join(upload_dir,file.filename)
+        file_path = os.path.join(upload_dir,"input.pdf")
 
         with open(file_path, "wb") as f:
             f.write(file.file.read())
 
-        ## Configs
-        ingest_config = IngestConfig(
-            md_file_path_dir=processed_dir,
-            md_file_name="output.md",
-            chunk_file_path_dir=processed_dir,
-            chunk_file_name="chunks.json"
+        set_status(file_id=file_id,status= "processing")
+
+        ## Run background task
+        bg.add_task(run_pipeline, file_id, file_path)
+
+        ## ------- RESPONSE -------------
+        return UploadPdfResponse(
+            status=200,
+            file_id = file_id,
+            message="Processing started"
         )
-
-        processing_config = ProcessingConfig(
-            metadata_dir_path=vector_dir,
-            metadata_file_name="metadata.json",
-            faiss_dir_path=vector_dir,
-            faiss_file_name="faiss_index.bin"
-        )
-
-        ## Runing the pipeline
-        ingest = IngestPdf(config=ingest_config)
-        ingest_artifact = ingest.ingestData(file_source=file_path)
-
-        processor = ProcessPdfToVector(ingest_artifact=ingest_artifact,config=processing_config)
-        processor.processPdf()
-
-        ## Sending the response
-        return UploadPdfResponse(status=200,file_id=file_id)
     
     except Exception as e:
-        return UploadPdfResponse(status=500,file_id="",error=str(e))
+        return UploadPdfResponse(
+            status=500,
+            file_id="",
+            error=str(e)
+        )
     
+
+@router.get("/status/{file_id}")
+def check_status(file_id: str):
+    status = get_status(file_id)
+
+    return {
+        "file_id": file_id,
+        "status":status
+    }
+        
+
 
 @router.post("/ask", response_model = QueryResponse)
 def ask_question(request: QueryRequest):
-    file_id = request.file_id
-    query = request.query
-
-    cache_key = (file_id,query)
-
-    if cache_key in CACHE:
-        return QueryResponse(answer=CACHE[cache_key])
-
-    ## Building the paths
-    base_path = os.path.join("data", file_id)
-    vector_dir = os.path.join(base_path,"vector_db")
-
-    metadata_path = os.path.join(vector_dir,"metadata.json")
-    faiss_path = os.path.join(vector_dir,"faiss_index.bin")
-
-    ## Validation
-    if not os.path.exists(metadata_path) or not os.path.exists(faiss_path):
-        return {
-            "answer": "Invalid file_id or file not processed"
-        }
-    
-    ## LOading artifacts
-    processing_artifact = ProcessingArtifact(metadata_file_path=metadata_path, faiss_file_path=faiss_path)
-
-    ## Init RAG
-    rag_config = RagConfig()
-    rag_pipeline = RagPipeline(processing_artifact=processing_artifact,config=rag_config)
-
-    answer = rag_pipeline.answer_query(query)
-
-    CACHE[cache_key] = answer
+    answer = ask_pipeline(file_id=request.file_id, query=request.query)
 
     return QueryResponse(answer=answer)
 
@@ -115,23 +91,10 @@ def retrieve_chunks(request: QueryRequest):
     file_id = request.file_id
     query = request.query
 
-    base_path = os.path.join("data",file_id)
-    vector_dir = os.path.join(base_path, "vector_db")
-
-    metadata_path = os.path.join(vector_dir,"metadata.json")
-    faiss_path = os.path.join(vector_dir,"faiss_index.bin")
-
-    if not os.path.exists(metadata_path):
-        return {"error":"Invalid file_id"}
-    
-    processing_artifact = ProcessingArtifact(
-        metadata_file_path=metadata_path,
-        faiss_file_path=faiss_path
+    chunks = retrieve_pipeline(
+        file_id=file_id,query=query
     )
 
-    rag = RagPipeline(processing_artifact=processing_artifact,config=RagConfig())
-
-    chunks = rag.retrieve_chunks(query=query)
 
     return {
         "chunks": chunks
@@ -147,8 +110,6 @@ def cleanup(file_id: str):
     shutil.rmtree(base_path)
 
     # Also remove cache entries
-    keys_to_delete = [k for k in CACHE if k[0] == file_id]
-    for k in keys_to_delete:
-        del CACHE[k]
+    clear_cache_by_file(file_id=file_id)
 
     return {"message": "Deleted successfully"}

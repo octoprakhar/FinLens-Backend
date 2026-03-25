@@ -6,16 +6,21 @@ from google import genai
 
 from src.entity.config import RagConfig
 from src.entity.artifacts import ProcessingArtifact
+from src.services.model_service import get_embedding_model
+from src.services.vector_store_service import get_vector_store
 
 class RagPipeline():
-    def __init__(self, processing_artifact: ProcessingArtifact, config: RagConfig):
+    def __init__(self, processing_artifact: ProcessingArtifact, config: RagConfig,file_id:str):
         self.config = config
         self.processing_artifact = processing_artifact
-        self.model = SentenceTransformer(config.embedding_model_name)
-        self.index = faiss.read_index(processing_artifact.faiss_file_path)
+        self.model = get_embedding_model(config.embedding_model_name)
+        self.index, self.metadata = get_vector_store(
+            file_id=file_id,
+            faiss_path=processing_artifact.faiss_file_path,
+            metadata_path=processing_artifact.metadata_file_path
+        )
         self.client = genai.Client(api_key=config.gemini_api_key)
-        with open(processing_artifact.metadata_file_path,"r",encoding="utf-8") as f:
-            self.metadata = json.load(f)
+        
 
     ## REtrieve the closest vectors
     def _search(self,query:str, k:int=5):

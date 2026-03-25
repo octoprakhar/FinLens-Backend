@@ -7,4 +7,5 @@ class QueryResponse(BaseModel):
 class UploadPdfResponse(BaseModel):
     status: int
     file_id: str
+    message: str = ""
     error: str = ""
