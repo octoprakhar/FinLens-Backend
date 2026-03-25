@@ -71,4 +71,21 @@ class RagPipeline():
 
         return response.text
 
-    
+    def retrieve_chunks(self, query: str, k: int = 10):
+        query_embedding = self.model.encode([query], normalize_embeddings=True)
+        query_embedding = np.array(query_embedding).astype("float32")
+
+        distances, indices = self.index.search(query_embedding,k)
+
+        results = []
+
+        for idx, dist in zip(indices[0], distances[0]):
+            chunk = self.metadata[idx]
+            results.append({
+                "text": chunk["text"],
+                "page": chunk["page"],
+                "score": float(dist)
+            })
+
+        return results
+

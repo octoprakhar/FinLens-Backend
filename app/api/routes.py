@@ -1,6 +1,7 @@
 from fastapi import APIRouter, UploadFile, File
 import uuid
 import os
+import shutil
 
 from src.entity.config import IngestConfig,ProcessingConfig,RagConfig
 from src.entity.artifacts import ProcessingArtifact
@@ -12,6 +13,7 @@ from app.schemas.response import UploadPdfResponse, QueryResponse
 from app.schemas.request import QueryRequest
 
 router = APIRouter()
+CACHE = {}
 
 @router.get("/health")
 def health():
@@ -77,6 +79,11 @@ def ask_question(request: QueryRequest):
     file_id = request.file_id
     query = request.query
 
+    cache_key = (file_id,query)
+
+    if cache_key in CACHE:
+        return QueryResponse(answer=CACHE[cache_key])
+
     ## Building the paths
     base_path = os.path.join("data", file_id)
     vector_dir = os.path.join(base_path,"vector_db")
@@ -99,4 +106,49 @@ def ask_question(request: QueryRequest):
 
     answer = rag_pipeline.answer_query(query)
 
+    CACHE[cache_key] = answer
+
     return QueryResponse(answer=answer)
+
+@router.post("/retrieve")
+def retrieve_chunks(request: QueryRequest):
+    file_id = request.file_id
+    query = request.query
+
+    base_path = os.path.join("data",file_id)
+    vector_dir = os.path.join(base_path, "vector_db")
+
+    metadata_path = os.path.join(vector_dir,"metadata.json")
+    faiss_path = os.path.join(vector_dir,"faiss_index.bin")
+
+    if not os.path.exists(metadata_path):
+        return {"error":"Invalid file_id"}
+    
+    processing_artifact = ProcessingArtifact(
+        metadata_file_path=metadata_path,
+        faiss_file_path=faiss_path
+    )
+
+    rag = RagPipeline(processing_artifact=processing_artifact,config=RagConfig())
+
+    chunks = rag.retrieve_chunks(query=query)
+
+    return {
+        "chunks": chunks
+    }
+
+@router.delete("/cleanup/{file_id}")
+def cleanup(file_id: str):
+    base_path = os.path.join("data", file_id)
+    
+    if not os.path.exists(base_path):
+        return {"message":"File not found"}
+    
+    shutil.rmtree(base_path)
+
+    # Also remove cache entries
+    keys_to_delete = [k for k in CACHE if k[0] == file_id]
+    for k in keys_to_delete:
+        del CACHE[k]
+
+    return {"message": "Deleted successfully"}

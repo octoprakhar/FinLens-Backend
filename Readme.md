@@ -158,3 +158,220 @@ FinLens V0 will be considered successful if:
 * Audio summaries
 
 ---
+
+
+# 📄 **FinLens V1 — Project Scope Document**
+
+---
+
+## **1. Objective**
+
+The objective of **FinLens V1** is to evolve the V0 system into a **responsive, scalable, and user-friendly API-driven application** by introducing asynchronous processing, state management, and system efficiency improvements.
+
+> FinLens V1 focuses on improving system usability, responsiveness, and lifecycle management while preserving the core document understanding capabilities established in V0.
+
+---
+
+## **2. Scope Definition**
+
+### **2.1 In-Scope Functionalities**
+
+The system will extend V0 capabilities with the following components:
+
+---
+
+### **A. Asynchronous Document Processing**
+
+* Decouple document upload from processing pipeline.
+* Upon upload, immediately return a unique `file_id` and initial processing status.
+* Execute ingestion, chunking, and embedding pipeline in the background.
+
+**Objective:**
+
+* Improve API responsiveness and user experience.
+* Avoid blocking requests for large documents.
+
+**Output Requirement:**
+
+* Upload API returns:
+
+  * `file_id`
+  * `status = "processing"`
+
+---
+
+### **B. Document Status Tracking**
+
+* Maintain processing state for each uploaded document.
+
+* Supported states:
+
+  * `processing`
+  * `ready`
+  * `failed`
+  * `not_found`
+
+* Provide a dedicated API to check document status.
+
+**Objective:**
+
+* Enable clients to track processing lifecycle.
+* Ensure safe querying only when data is ready.
+
+---
+
+### **C. Conditional Query Execution**
+
+* Modify query endpoint to validate document readiness.
+* Prevent query execution if document is still processing or failed.
+
+**Output Requirement:**
+
+* If not ready:
+
+  * Return appropriate status message.
+* If ready:
+
+  * Proceed with retrieval + QA pipeline.
+
+---
+
+### **D. Response Caching with Expiry**
+
+* Cache query responses based on `(file_id, query)` pair.
+* Introduce TTL (Time-To-Live) for cache invalidation.
+
+**Objective:**
+
+* Reduce redundant LLM calls.
+* Improve response latency.
+
+---
+
+### **E. Retrieval Debugging Interface**
+
+* Provide an endpoint to retrieve top-k relevant chunks without invoking the LLM.
+* Include:
+
+  * chunk text
+  * page number
+  * similarity score
+
+**Objective:**
+
+* Enable debugging and evaluation of retrieval quality.
+* Reduce dependency on LLM during development.
+
+---
+
+### **F. Data Lifecycle Management (Cleanup)**
+
+* Provide endpoint to delete all data associated with a `file_id`.
+* Remove:
+
+  * uploaded files
+  * processed markdown
+  * chunk files
+  * embeddings / FAISS index
+  * cached responses
+
+**Objective:**
+
+* Manage disk usage.
+* Support multi-user scalability.
+
+---
+
+### **G. Improved API Design (Service Layer Separation)**
+
+* Separate business logic from route handlers.
+* Introduce service layer modules for:
+
+  * ingestion
+  * processing
+  * retrieval / QA
+
+**Objective:**
+
+* Improve code maintainability and scalability.
+
+---
+
+## **3. Out of Scope (Explicitly Excluded in V1)**
+
+The following features remain excluded:
+
+* ❌ Migration to distributed vector databases (e.g., Pinecone, Weaviate)
+* ❌ Cloud storage integration (e.g., Amazon S3)
+* ❌ Authentication and multi-user account management
+* ❌ Advanced table reconstruction
+* ❌ Multi-document querying
+* ❌ Conversational memory (multi-turn context)
+* ❌ Frontend UI/UX enhancements beyond basic usage
+
+---
+
+## **4. Non-Functional Requirements**
+
+* Upload API must respond immediately (non-blocking behavior).
+* System must support concurrent document processing.
+* Query latency should improve via caching.
+* System must handle multiple document sessions independently.
+* Data must be isolated per `file_id`.
+* System should remain debuggable and traceable.
+
+---
+
+## **5. Success Criteria**
+
+FinLens V1 will be considered successful if:
+
+1. Upload API returns instantly without waiting for processing.
+2. Document processing occurs asynchronously and reliably.
+3. Status endpoint correctly reflects processing state.
+4. Queries are only executed on fully processed documents.
+5. Cached responses reduce repeated LLM calls.
+6. Retrieval debugging endpoint returns meaningful chunks.
+7. Cleanup endpoint successfully removes all related data.
+8. System supports multiple documents without conflict.
+
+---
+
+## **6. Suggested Technical Stack (V1 Additions)**
+
+* **Backend Framework:** FastAPI
+* **Background Tasks:** FastAPI BackgroundTasks (V0-level async)
+* **Caching:** In-memory dictionary (upgrade later to Redis)
+* **Vector Storage:** FAISS (continue from V0)
+* **Task Orchestration (Future):** Celery
+
+---
+
+## **7. Development Phases (Execution Order)**
+
+1. Introduce background processing for upload pipeline
+2. Implement document status tracking
+3. Update query endpoint with status validation
+4. Add response caching with TTL
+5. Build retrieval-only debugging endpoint
+6. Implement cleanup endpoint
+7. Refactor code into service-layer architecture
+
+---
+
+## **8. Key Design Principle**
+
+> Prioritize responsiveness, system reliability, and lifecycle management over adding new ML capabilities.
+
+---
+
+## **9. Future Extensions (Post V1)**
+
+* Migration to scalable vector databases (e.g., Qdrant)
+* Cloud storage integration
+* Multi-document querying
+* Table-aware understanding
+* Conversational memory
+* User authentication & dashboards
+
+---
