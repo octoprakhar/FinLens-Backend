@@ -1,7 +1,11 @@
 from pydantic import BaseModel
+from dataclasses import dataclass
+from typing import List,Dict
 
-class QueryResponse(BaseModel):
+@dataclass
+class QueryResponse():
     answer: str
+    sources: List[Dict]
 
 
 class UploadPdfResponse(BaseModel):

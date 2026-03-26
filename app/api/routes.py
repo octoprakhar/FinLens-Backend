@@ -3,12 +3,6 @@ import uuid
 import os
 import shutil
 
-from src.entity.config import IngestConfig,ProcessingConfig,RagConfig
-from src.entity.artifacts import ProcessingArtifact
-from src.components.ingestor import IngestPdf
-from src.components.processPdf import ProcessPdfToVector
-from src.components.RagPdf import RagPipeline
-
 from app.schemas.response import UploadPdfResponse, QueryResponse
 from app.schemas.request import QueryRequest
 from app.services.upload_service import run_pipeline
@@ -82,9 +76,12 @@ def check_status(file_id: str):
 
 @router.post("/ask", response_model = QueryResponse)
 def ask_question(request: QueryRequest):
-    answer = ask_pipeline(file_id=request.file_id, query=request.query)
+    result = ask_pipeline(file_id=request.file_id, query=request.query, debug=request.debug)
 
-    return QueryResponse(answer=answer)
+    return QueryResponse(
+    answer=result["answer"],
+    sources=result["sources"] or None
+)
 
 @router.post("/retrieve")
 def retrieve_chunks(request: QueryRequest):

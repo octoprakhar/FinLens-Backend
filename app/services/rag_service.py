@@ -6,7 +6,7 @@ from src.components.RagPdf import RagPipeline
 from app.services.status_service import get_status
 from app.services.cache_service import get_cache,set_cache
 
-def ask_pipeline(file_id: str, query: str):
+def ask_pipeline(file_id: str, query: str, debug: bool = False):
     # Check status
     status = get_status(file_id)
     if status != 'ready':
@@ -37,14 +37,19 @@ def ask_pipeline(file_id: str, query: str):
 
     try:
         
-        answer = rag_pipeline.answer_query(query)
+        result = rag_pipeline.answer_query(query)
 
     except Exception as e:
         return f"Error generating answer: {str(e)}"
+    
+    if not debug:
+        result = {
+            "answer": result["answer"]
+        }
 
-    set_cache(cache_key, answer)
+    set_cache(cache_key, result)
 
-    return answer
+    return result
 
 def retrieve_pipeline(file_id: str, query: str, k: int = 5):
 

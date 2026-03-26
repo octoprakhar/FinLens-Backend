@@ -74,7 +74,19 @@ class RagPipeline():
             contents=prompt
         )
 
-        return response.text
+        ## FOrmatting the source, to give clean code
+        sources = [
+            {
+                "page": chunk["page"],
+                "text": chunk["text"]
+            }
+            for chunk in chunks
+        ]
+
+        return {
+        "answer": response.text,
+        "sources": sources
+    }
 
     def retrieve_chunks(self, query: str, k: int = 10):
         query_embedding = self.model.encode([query], normalize_embeddings=True)
