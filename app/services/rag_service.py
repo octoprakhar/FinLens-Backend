@@ -10,7 +10,10 @@ def ask_pipeline(file_id: str, query: str, debug: bool = False):
     # Check status
     status = get_status(file_id)
     if status != 'ready':
-        return f"Document is {status}. Please wait."
+        return {
+            "answer": f"Document is {status}. Please wait.",
+            "sources": []
+        }
     
     # check cache
     cache_key = (file_id,query)
@@ -28,7 +31,10 @@ def ask_pipeline(file_id: str, query: str, debug: bool = False):
 
     ## LEt's validatE both the paths
     if not os.path.exists(metadata_path) or not os.path.exists(faiss_path):
-        return "Invalid file_id or file not processed"
+        return {
+            "answer": "Invalid file_id or file not processed",
+            "sources": []
+        }
     
     ## Load RAg
     processing_artifact = ProcessingArtifact(metadata_file_path=metadata_path,faiss_file_path=faiss_path)
@@ -40,16 +46,18 @@ def ask_pipeline(file_id: str, query: str, debug: bool = False):
         result = rag_pipeline.answer_query(query)
 
     except Exception as e:
-        return f"Error generating answer: {str(e)}"
-    
-    if not debug:
-        result = {
-            "answer": result["answer"]
+        return {
+            "answer": f"Error generating answer: {str(e)}",
+            "sources": []
         }
+    
+    final_result = {
+        "answer": result.get("answer", ""),
+        "sources": result.get("sources", []) if debug else []
+    }
+    set_cache(cache_key, final_result)
 
-    set_cache(cache_key, result)
-
-    return result
+    return final_result
 
 def retrieve_pipeline(file_id: str, query: str, k: int = 5):
 

@@ -80,7 +80,7 @@ def ask_question(request: QueryRequest):
 
     return QueryResponse(
     answer=result["answer"],
-    sources=result["sources"] or None
+    sources=result["sources"]
 )
 
 @router.post("/retrieve")
