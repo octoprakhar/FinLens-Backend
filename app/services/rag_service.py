@@ -8,12 +8,12 @@ from app.services.cache_service import get_cache,set_cache
 
 def ask_pipeline(file_id: str, query: str, debug: bool = False):
     # Check status
-    status = get_status(file_id)
-    if status != 'ready':
-        return {
-            "answer": f"Document is {status}. Please wait.",
-            "sources": []
-        }
+    # status = get_status(file_id)
+    # if status != 'ready':
+    #     return {
+    #         "answer": f"Document is {status}. Please wait.",
+    #         "sources": []
+    #     }
     
     # check cache
     cache_key = (file_id,query)
@@ -26,18 +26,20 @@ def ask_pipeline(file_id: str, query: str, debug: bool = False):
     base_path = os.path.join("data",file_id)
     vector_dir = os.path.join(base_path, "vector_db")
 
-    metadata_path = os.path.join(vector_dir,"metadata.json")
-    faiss_path = os.path.join(vector_dir,"faiss_index.bin")
+    # metadata_path = os.path.join(vector_dir,"metadata.json")
+    # faiss_path = os.path.join(vector_dir,"faiss_index.bin")
+
+    chroma_db_path = os.path.join(base_path,"chroma_db")
 
     ## LEt's validatE both the paths
-    if not os.path.exists(metadata_path) or not os.path.exists(faiss_path):
+    if not os.path.exists(chroma_db_path):
         return {
             "answer": "Invalid file_id or file not processed",
             "sources": []
         }
     
     ## Load RAg
-    processing_artifact = ProcessingArtifact(metadata_file_path=metadata_path,faiss_file_path=faiss_path)
+    processing_artifact = ProcessingArtifact(collection_name="finlens_collection", chroma_db_path=chroma_db_path)
 
     rag_pipeline = RagPipeline(processing_artifact=processing_artifact, config=RagConfig(),file_id=file_id)
 
@@ -62,22 +64,23 @@ def ask_pipeline(file_id: str, query: str, debug: bool = False):
 def retrieve_pipeline(file_id: str, query: str, k: int = 5):
 
     # Check status
-    status = get_status(file_id)
-    if status != 'ready':
-        return f"Document is {status}. Please wait."
+    # status = get_status(file_id)
+    # if status != 'ready':
+    #     return f"Document is {status}. Please wait."
 
     base_path = os.path.join("data", file_id)
-    vector_dir = os.path.join(base_path, "vector_db")
+    # vector_dir = os.path.join(base_path, "vector_db")
 
-    metadata_path = os.path.join(vector_dir, "metadata.json")
-    faiss_path = os.path.join(vector_dir, "faiss_index.bin")
+    # metadata_path = os.path.join(vector_dir, "metadata.json")
+    # faiss_path = os.path.join(vector_dir, "faiss_index.bin")
+    chroma_db_path = os.path.join(base_path,"chroma_db")
 
-    if not os.path.exists(metadata_path) or not os.path.exists(faiss_path):
+    if not os.path.exists(chroma_db_path):
         return {"error": "Invalid file_id"}
 
     processing_artifact = ProcessingArtifact(
-        metadata_file_path=metadata_path,
-        faiss_file_path=faiss_path
+        collection_name="finlens_collection",
+        chroma_db_path=chroma_db_path
     )
 
     rag_pipeline = RagPipeline(

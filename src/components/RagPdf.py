@@ -1,8 +1,9 @@
-import json
-import faiss
 import numpy as np
-from sentence_transformers import SentenceTransformer
 from google import genai
+
+import chromadb
+from langchain_chroma import Chroma
+from langchain_openai import OpenAIEmbeddings
 
 from src.entity.config import RagConfig
 from src.entity.artifacts import ProcessingArtifact
@@ -13,26 +14,46 @@ class RagPipeline():
     def __init__(self, processing_artifact: ProcessingArtifact, config: RagConfig,file_id:str):
         self.config = config
         self.processing_artifact = processing_artifact
-        self.model = get_embedding_model(config.embedding_model_name)
-        self.index, self.metadata = get_vector_store(
-            file_id=file_id,
-            faiss_path=processing_artifact.faiss_file_path,
-            metadata_path=processing_artifact.metadata_file_path
-        )
+        # self.model = get_embedding_model(config.embedding_model_name)
+        # self.index, self.metadata = get_vector_store(
+        #     file_id=file_id,
+        #     faiss_path=processing_artifact.faiss_file_path,
+        #     metadata_path=processing_artifact.metadata_file_path
+        # )
+
+        self.embeddings = get_embedding_model(config.embedding_model_name)
+        self.chroma_client = chromadb.PersistentClient(path=processing_artifact.chroma_db_path)
+
         self.client = genai.Client(api_key=config.gemini_api_key)
+
+        self.vector_store = Chroma(
+            client=self.chroma_client,
+            collection_name=processing_artifact.collection_name,
+            embedding_function=self.embeddings
+        )
         
 
     ## REtrieve the closest vectors
     def _search(self,query:str, k:int=5):
-        query_embedding = self.model.encode([query],normalize_embeddings=True)
-        query_embedding = np.array(query_embedding).astype('float32')
+        # query_embedding = self.model.encode([query],normalize_embeddings=True)
+        # query_embedding = np.array(query_embedding).astype('float32')
 
-        distances, indices = self.index.search(query_embedding,k)
+        # distances, indices = self.index.search(query_embedding,k)
+
+        # results = []
+
+        # for i in indices[0]:
+        #     results.append(self.metadata[i])
+
+        docs = self.vector_store.similarity_search(query=query, k=k)
 
         results = []
-
-        for i in indices[0]:
-            results.append(self.metadata[i])
+        for doc in docs:
+            results.append({
+                "text": doc.page_content,
+                "page": doc.metadata.get("page", 0),
+                "source": doc.metadata.get("source", "finlens")
+            })
 
         return results
     
@@ -89,19 +110,32 @@ class RagPipeline():
     }
 
     def retrieve_chunks(self, query: str, k: int = 10):
-        query_embedding = self.model.encode([query], normalize_embeddings=True)
-        query_embedding = np.array(query_embedding).astype("float32")
+        # query_embedding = self.model.encode([query], normalize_embeddings=True)
+        # query_embedding = np.array(query_embedding).astype("float32")
 
-        distances, indices = self.index.search(query_embedding,k)
+        # distances, indices = self.index.search(query_embedding,k)
+
+        # results = []
+
+        # for idx, dist in zip(indices[0], distances[0]):
+        #     chunk = self.metadata[idx]
+        #     results.append({
+        #         "text": chunk["text"],
+        #         "page": chunk["page"],
+        #         "score": float(dist)
+        #     })
+
+        ## For chroma
+        # similarity_search_with_score returns a Tuple[Document, float]
+        docs_with_scores = self.vector_store.similarity_search_with_score(query, k=k)
 
         results = []
-
-        for idx, dist in zip(indices[0], distances[0]):
-            chunk = self.metadata[idx]
+        for doc, score in docs_with_scores:
             results.append({
-                "text": chunk["text"],
-                "page": chunk["page"],
-                "score": float(dist)
+                "text": doc.page_content,
+                "page": doc.metadata.get("page", 0),
+                "source": doc.metadata.get("source", "finlens"),
+                "score": float(score)  # Lower is typically more similar in Chroma (L2)
             })
 
         return results

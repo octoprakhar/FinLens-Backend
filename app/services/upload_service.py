@@ -10,7 +10,8 @@ def run_pipeline(file_id: str, file_path: str):
         base_path = os.path.join("data", file_id)
 
         processed_dir = os.path.join(base_path, "processed")
-        vector_dir = os.path.join(base_path, "vector_db")
+        # vector_dir = os.path.join(base_path, "vector_db")
+        chroma_db_path = os.path.join(base_path,"chroma_db")
 
         #------ CONFIGS ---------
         ingest_config = IngestConfig(
@@ -21,10 +22,11 @@ def run_pipeline(file_id: str, file_path: str):
         )
 
         processing_config = ProcessingConfig(
-            metadata_dir_path=vector_dir,
-            metadata_file_name="metadata.json",
-            faiss_dir_path=vector_dir,
-            faiss_file_name="faiss_index.bin"
+            # metadata_dir_path=vector_dir,
+            # metadata_file_name="metadata.json",
+            # faiss_dir_path=vector_dir,
+            # faiss_file_name="faiss_index.bin"
+            chroma_db_path=chroma_db_path
         )
 
         #---------- RUN PIPELINE--------
