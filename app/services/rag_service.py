@@ -1,10 +1,14 @@
 import os
+from langchain_core.messages import HumanMessage
 
 from src.entity.artifacts import ProcessingArtifact
 from src.entity.config import RagConfig
 from src.components.RagPdf import RagPipeline
 from app.services.status_service import get_status
 from app.services.cache_service import get_cache,set_cache
+
+from src.services.agent_nodes import AgentNodes
+from src.services.agent_workflow import create_workflow
 
 def ask_pipeline(file_id: str, query: str, debug: bool = False):
     # Check status
@@ -43,9 +47,23 @@ def ask_pipeline(file_id: str, query: str, debug: bool = False):
 
     rag_pipeline = RagPipeline(processing_artifact=processing_artifact, config=RagConfig(),file_id=file_id)
 
+    nodes = AgentNodes(rag_pipeline=rag_pipeline)
+    app = create_workflow(nodes)
+
     try:
         
-        result = rag_pipeline.answer_query(query)
+        # result = rag_pipeline.answer_query(query)
+        inputs = {
+            "messages": [HumanMessage(content=query)],
+            "query_count": 0
+        }
+
+        config = {"configurable": {"thread_id": file_id}}
+
+        final_state = app.invoke(inputs, config)
+
+        last_message = final_state["messages"][-1]
+        sources = final_state.get("documents", [])
 
     except Exception as e:
         return {
@@ -54,8 +72,8 @@ def ask_pipeline(file_id: str, query: str, debug: bool = False):
         }
     
     final_result = {
-        "answer": result.get("answer", ""),
-        "sources": result.get("sources", []) if debug else []
+        "answer": last_message.content,
+        "sources": sources if debug else []
     }
     set_cache(cache_key, final_result)
 

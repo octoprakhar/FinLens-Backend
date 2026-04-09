@@ -14,12 +14,7 @@ class RagPipeline():
     def __init__(self, processing_artifact: ProcessingArtifact, config: RagConfig,file_id:str):
         self.config = config
         self.processing_artifact = processing_artifact
-        # self.model = get_embedding_model(config.embedding_model_name)
-        # self.index, self.metadata = get_vector_store(
-        #     file_id=file_id,
-        #     faiss_path=processing_artifact.faiss_file_path,
-        #     metadata_path=processing_artifact.metadata_file_path
-        # )
+
 
         self.embeddings = get_embedding_model(config.embedding_model_name)
         self.chroma_client = chromadb.PersistentClient(path=processing_artifact.chroma_db_path)
@@ -35,16 +30,7 @@ class RagPipeline():
 
     ## REtrieve the closest vectors
     def _search(self,query:str, k:int=5):
-        # query_embedding = self.model.encode([query],normalize_embeddings=True)
-        # query_embedding = np.array(query_embedding).astype('float32')
-
-        # distances, indices = self.index.search(query_embedding,k)
-
-        # results = []
-
-        # for i in indices[0]:
-        #     results.append(self.metadata[i])
-
+        
         docs = self.vector_store.similarity_search(query=query, k=k)
 
         results = []
@@ -110,23 +96,6 @@ class RagPipeline():
     }
 
     def retrieve_chunks(self, query: str, k: int = 10):
-        # query_embedding = self.model.encode([query], normalize_embeddings=True)
-        # query_embedding = np.array(query_embedding).astype("float32")
-
-        # distances, indices = self.index.search(query_embedding,k)
-
-        # results = []
-
-        # for idx, dist in zip(indices[0], distances[0]):
-        #     chunk = self.metadata[idx]
-        #     results.append({
-        #         "text": chunk["text"],
-        #         "page": chunk["page"],
-        #         "score": float(dist)
-        #     })
-
-        ## For chroma
-        # similarity_search_with_score returns a Tuple[Document, float]
         docs_with_scores = self.vector_store.similarity_search_with_score(query, k=k)
 
         results = []
