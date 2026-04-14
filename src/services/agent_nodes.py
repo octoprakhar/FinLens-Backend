@@ -1,4 +1,10 @@
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, SystemMessage
+from langchain_core.tools import tool
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_ollama import ChatOllama
+
+import os
+import json
 
 
 from src.services.agent_state import FinLensState
@@ -8,130 +14,76 @@ class AgentNodes:
     def __init__(self, rag_pipeline: RagPipeline):
         self.rag_pipeline = rag_pipeline
 
-    def retrieve_node(self,state:FinLensState):
-        ## Worker 1
-        current_attempt = state.get("query_count", 0) + 1
-        print(f"\n--- [ATTEMPT {current_attempt}] RETRIEVING FROM CHROMADB ---")
+        # self.llm = ChatGoogleGenerativeAI(
+        #      model="gemini-2.5-flash",
+        #      google_api_key=rag_pipeline.config.gemini_api_key,
+        #      temperature=0
+        # )
+        self.llm = ChatOllama(
+            model="qwen2.5-coder:7b",
+            temperature=0,
+            # This ensures the model uses your Nvidia GPU
+            num_gpu=1,
+            verbose=True
+        )
 
-        user_query = state["messages"][-1].content
-
-        ## Fetching the 5 chunks
-        retrieved_chunks = self.rag_pipeline._search(user_query)
-
-        if retrieved_chunks:
-            print(f"✅ Found {len(retrieved_chunks)} chunks. Preview: {retrieved_chunks[0]['text'][:100]}...")
-        else:
-            print("⚠️ No chunks found in Vector Store.")
-
-        return{
-            "documents": retrieved_chunks,
-            "query_Count": state.get("query_count",0) + 1
-        }
+    def get_tools(self):
+         @tool
+         def search_pdf(query:str):
+              
+              """Search the financial PDF for factual data and numbers."""
+              return self.rag_pipeline._search(query=query)
     
-    def grade_node(self, state: FinLensState):
+         return [search_pdf]
 
-            # Worker 2: The Grader (The Decision Engine)
+    
+    def assistant_node(self, state: FinLensState):
+        count = state.get("query_count", 0)
+        if count >= 5:
+            print("⚠️ [SAFE EXIT] MAX SEARCHES REACHED. STOPPING.")
+            return {"messages": [AIMessage(content="I have searched the document multiple times but cannot find more specific data. Based on what I found...")]}
 
-            print("---CHECKING DOCUMENT RELEVANCE---")
+        print(f"\n--- [AGENT] THINKING (Attempt {count + 1}) ---")
         
-            question = state["messages"][-1].content
-            docs = state["documents"]
+        # Re-initialize tools to ensure proper context
+        tools = self.get_tools()
+        model_with_tools = self.llm.bind_tools(tools)
 
-            if not docs:
-                print("❌ No docs to grade. Marking as 'no'.")
-                return {"is_relevant": "no"}
-        
-            # 1. Prepare the grading prompt
-            prompt = f"""
-            You are a grader assessing relevance of a retrieved document to a user question. 
-        
-            Retrieved Documents: 
-            {docs}
-        
-            User Question: 
-            {question}
-        
-            If the document contains keywords or semantic meaning related to the user question, grade it as relevant. 
-            Give a binary score 'yes' or 'no' to indicate whether the document is relevant to the question.
-        
-            Respond ONLY with a JSON object: {{"score": "yes"}} or {{"score": "no"}}
-            """
+        sys_msg = SystemMessage(content=(
+            "You are a strict financial auditor. Your goal is to find exact data. "
+            "1. Use the search_pdf tool to find information. "
+            "2. If the search results are empty or irrelevant, REWRITE your query and try again. "
+            "3. Once you have the data, provide a final answer with page references."
+        ))
 
-            # 2. Call Gemini for the decision
-            response = self.rag_pipeline.client.models.generate_content(
-                model="gemini-2.5-flash", 
-                contents=prompt
-            )
+        # The LLM looks at the history and decides: "Should I call a tool or answer?"
+        response = model_with_tools.invoke([sys_msg] + state["messages"])
 
-            # 3. Parse the result safely
-            import json
+        if not response.tool_calls and '{"name":' in response.content:
             try:
-                # Clean the string in case Gemini adds markdown ```json blocks
-                clean_content = response.text.replace("```json", "").replace("```", "").strip()
-                data = json.loads(clean_content)
-                grade = data.get("score", "no")
-                print(f"⚖️ Grade Result: {grade.upper()}")
+                # Try to extract and parse the JSON from the text
+                tool_data = json.loads(response.content)
+                # Manually inject it into tool_calls so the graph continues
+                response.tool_calls = [{
+                    "name": tool_data["name"],
+                    "args": tool_data["arguments"],
+                    "id": "manual_call_" + os.urandom(4).hex() # Give it a random ID
+                }]
+                print(f"🛠️  [REPAIRED TOOL CALL]: {response.tool_calls[0]['name']}")
             except:
-                grade = "no" # Default to 'no' if the LLM output is messy
-                print("⚖️ Grade Result: ERROR PARSING (Defaulting to NO)")
-
-            # 4. Update the 'Shared Notebook'
-            # We write our decision into the 'is_relevant' field.
-            return {"is_relevant": grade}
+                print(f"💬 [RAW RESPONSE]: {response.content}")
     
-
-    def generate_node(self, state: FinLensState):
-            """
-            Worker 3: The Generator
-            """
-            print("---GENERATING FINAL ANSWER---")
-
-            if state.get("is_relevant") == "no":
-                not_found_msg = "I'm sorry, I searched the document but couldn't find relevant information to answer your question accurately."
-                print("🛑 Result: Not Found in document.")
-                return {"messages": [AIMessage(content=not_found_msg)]}
+        elif response.tool_calls:
+            print(f"🛠️  [NATIVE TOOL CALL]: {response.tool_calls[0]['name']}")
+        else:
+            print(f"✅ [FINAL ANSWER GENERATED]")
         
-            # 1. Get data from the notebook
-            question = state["messages"][-1].content
-            docs = state["documents"]
-        
-            # 2. I am using existing _build_context logic to format the chunks
-            context = self.rag_pipeline._build_context(docs)
-        
-            prompt = f"""
-            You are a financial document assistant.
-            Answer the question ONLY using the provided context.
-            Do NOT use outside knowledge.
-            Always include page references like (Page X).
-
-            Context:
-            {context}
-
-            Question:
-            {question}
-        
-            Answer:
-            """
-
-            # 3. Final generation
-            response = self.rag_pipeline.client.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=prompt
-            )
-
-            # 4. Update the Notebook
-            # We return the AI's response as a 'message'. 
-            # Because we used 'add_messages' in the State, this appends to the history.
-            print("✨ Answer generated successfully.")
-            return {"messages": [AIMessage(content=response.text)]}
-        
-    def rewrite_node(self, state: FinLensState):
-        print("--- [REWRITER] OPTIMIZING QUERY FOR BETTER RETRIEVAL ---")
-        question = state["messages"][-1].content
+        return {"messages": [response]}
     
-        prompt = f"Optimize this financial query for a vector database search. Provide ONLY the search string: {question}"
-        response = self.rag_pipeline.client.models.generate_content(model="gemini-2.5-flash", contents=prompt)
+    def generate_final_answer(self, state: FinLensState):
+        """Optional: A dedicated node to clean up the final answer if needed."""
+        print("--- GENERATING FINAL AUDIT REPORT ---")
+        return {"messages": [AIMessage(content=state["messages"][-1].content)]}
+         
+        
 
-        print(f"Generated Query is: {response.text}")
-    
-        return {"messages": [AIMessage(content=response.text)]}

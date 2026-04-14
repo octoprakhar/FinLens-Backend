@@ -6,6 +6,7 @@ google-genai
 docling
 fastapi
 uvicorn[standard]
+python-multipart
 
 # Core AI & Orchestration
 langchain-openai>=0.1.0
@@ -15,6 +16,8 @@ pydantic>=2.0.0
 # Vector Database (The Migration)
 langchain-chroma>=0.1.1
 langchain-huggingface
+langchain-google-genai
+langchain-ollama
 
 # Persistence (The Conversation ID logic)
 langgraph-checkpoint-sqlite>=3.0.3
